@@ -112,6 +112,7 @@ class DynamixelServo(Joint):
             if self.device.fake:
                 last_angle = self.position
                 self.position = self.last_cmd
+                self.jst_position = self.position
                 t = rospy.Time.now()
                 self.velocity = (self.position - last_angle)/((t - self.last).to_nsec()/1000000000.0)
                 self.last = t
