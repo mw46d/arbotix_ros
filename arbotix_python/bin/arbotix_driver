@@ -87,6 +87,8 @@ class ArbotixROS(ArbotiX):
                 self.joints[name] = PrismaticDynamixelServo(self, name)
             elif joint_type == "hobby_servo":
                 self.joints[name] = HobbyServo(self, name)
+            elif joint_type == "hobby_prismatic":
+                self.joints[name] = PrismaticHobbyServo(self, name)
             elif joint_type == "calibrated_linear":
                 self.joints[name] = LinearJoint(self, name)
             else:

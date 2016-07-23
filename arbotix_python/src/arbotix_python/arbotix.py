@@ -40,15 +40,15 @@ class ArbotiX:
     ## @brief Constructs an ArbotiX instance and opens the serial connection.
     ##
     ## @param port The name of the serial port to open.
-    ## 
-    ## @param baud The baud rate to run the port at. 
+    ##
+    ## @param baud The baud rate to run the port at.
     ##
     ## @param timeout The timeout to use for the port. When operating over a wireless link, you may need to
     ## increase this.
     def __init__(self, port="/dev/ttyUSB0",baud=115200, timeout = 0.1):
         self._mutex = thread.allocate_lock()
         self._ser = serial.Serial()
-        
+
         self._ser.baudrate = baud
         self._ser.port = port
         self._ser.timeout = timeout
@@ -59,12 +59,12 @@ class ArbotiX:
 
     ## @brief Read a dynamixel return packet in an iterative attempt.
     ##
-    ## @param mode This should be 0 to start reading packet. 
+    ## @param mode This should be 0 to start reading packet.
     ##
-    ## @return The error level returned by the device. 
+    ## @return The error level returned by the device.
     def getPacket(self, mode, id=-1, leng=-1, error=-1, params = None):
         try:
-            d = self._ser.read()     
+            d = self._ser.read()
         except Exception as e:
             print e
             return None
@@ -72,9 +72,11 @@ class ArbotiX:
         if d == '':
             return None
 
+        # print "mw gotByte: %02x" % ord(d)
+
         # now process our byte
         if mode == 0:           # get our first 0xFF
-            if ord(d) == 0xff:   
+            if ord(d) == 0xff:
                 return self.getPacket(1)
             else:
                 return self.getPacket(0)
@@ -86,11 +88,11 @@ class ArbotiX:
         elif mode == 2:         # get id
             if d != 0xff:
                 return self.getPacket(3, ord(d))
-            else:              
+            else:
                 return self.getPacket(0)
         elif mode == 3:         # get length
             return self.getPacket(4, id, ord(d))
-        elif mode == 4:         # read error    
+        elif mode == 4:         # read error
             self.error = ord(d)
             if leng == 2:
                 return self.getPacket(6, id, leng, ord(d), list())
@@ -110,7 +112,7 @@ class ArbotiX:
         # fail
         return None
 
-    ## @brief Send an instruction to the device. 
+    ## @brief Send an instruction to the device.
     ##
     ## @param index The ID of the servo to write.
     ##
@@ -123,8 +125,11 @@ class ArbotiX:
     ## @return The return packet, if read.
     def execute(self, index, ins, params, ret=True):
         values = None
-        self._mutex.acquire()  
-        try:      
+
+        # print "mw execute index= %02x  ins= %02x len= %02x" % (index, ins, (len(params) + 2))
+
+        self._mutex.acquire()
+        try:
             self._ser.flushInput()
         except Exception as e:
             print e
@@ -138,6 +143,8 @@ class ArbotiX:
             return None
         for val in params:
             try:
+                # print "  mw param= %02x" % val
+
                 self._ser.write(chr(val))
             except Exception as e:
                 print e
@@ -153,7 +160,7 @@ class ArbotiX:
             values = self.getPacket(0)
         self._mutex.release()
         return values
-    
+
     ## @brief Read values of registers.
     ##
     ## @param index The ID of the servo.
@@ -166,7 +173,7 @@ class ArbotiX:
     def read(self, index, start, length):
         values = self.execute(index, AX_READ_DATA, [start, length])
         if values == None:
-            return -1        
+            return -1
         else:
             return values
 
@@ -508,10 +515,31 @@ class ArbotiX:
     ##
     ## @return -1 if error.
     def setServo(self, index, value):
-        if index > 7: return -1
+        # print "mw ArbotiX setServo(%d, %d)" % (index, value)
+
+        if index < 0 or index > 7:
+            return -1
         if value != 0 and (value < 500 or value > 2500):
             print "ArbotiX Error: Servo value out of range:", value
         else:
-            self.write(253, self._SERVO_BASE + 2*index, [value%256, value>>8])
+            self.write(253, self.SERVO_BASE + 2 * index, [value%256, value>>8])
         return 0
 
+    ## @brief Get the position of a hobby servo.
+    ##
+    ## @param index The ID of the device to read.
+    ##
+    ## @return The servo position in milliseconds (1500-2500).
+    def getServo(self, index):
+        # print "mw ArbotiX getServo(%d)" % index
+
+        values = self.read(253, self.SERVO_BASE + 2 * index, 2)
+        i = -1
+
+        try:
+            i = int(values[0]) + (int(values[1]) << 8)
+        except:
+            i = -1
+
+        # print "mw ArbotiX getServo(%d) --> %d" % (index, i)
+        return i

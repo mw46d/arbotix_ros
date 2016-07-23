@@ -219,7 +219,7 @@ class GripperActionController:
 
     def actionCb(self, goal):
         """ Take an input command of width to open gripper. """
-        rospy.loginfo('Gripper controller action goal recieved:%f m' % goal.command.position)
+        rospy.loginfo('GripperActionController::actionCb Gripper controller action goal recieved:%f m' % goal.command.position)
         # send command to gripper
         if self.model.setCommand(goal.command) == False:
             self.server.set_aborted(text="Command exceeds range")

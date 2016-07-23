@@ -51,17 +51,23 @@ class ParallelConvert:
         self.c = rospy.get_param(ns+'connector', 0.024)   # connector from horn to finger
         # offset back from connection to actual foam pad      
         self.offset = rospy.get_param(ns+'offset', 0.016)
+        self.angle_offset = rospy.get_param(ns+'angle_offset', 0.0)
+        # print "mw ParallelConvert::__init__() r= %f  c= %f  offset= %f  aoffset= %f" % (self.r, self.c, self.offset, self.angle_offset)
 
     def widthToAngle(self, width):
         """ Convert width to servo angle """
         leg = (width / 2) + self.offset  # Remove double for two fingers and add offset
         # Law of Cosines
-        return -1 * acos ( (self.r * self.r + leg * leg - self.c * self.c) / (2 * self.r * leg) )
+        # return -1 * acos ( (self.r * self.r + leg * leg - self.c * self.c) / (2 * self.r * leg) ) + self.angle_offset
+        ret =  acos ( (self.r * self.r + leg * leg - self.c * self.c) / (2 * self.r * leg) )
+        # print "mw ParallelConvert::widthToAngle(%f) len= %f  ret= %f  %f" % (width, leg, ret, ret + self.angle_offset)
+        return ret + self.angle_offset
 
     def angleToWidth(self, ang):
         """ Convert angle to width for this gripper """
-        n = cos(ang) * self.r               # CAH
-        x = sin(ang) * self.r               # SOH
+        a = ang - self.angle_offset
+        n = cos(a) * self.r               # CAH
+        x = sin(a) * self.r               # SOH
         y = sqrt(self.c * self.c - x * x)   # Pythagorean
         return (n + y - self.offset) * 2  # Remove offset and double to cover two fingers
 

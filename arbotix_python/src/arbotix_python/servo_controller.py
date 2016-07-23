@@ -44,7 +44,7 @@ class DynamixelServo(Joint):
     def __init__(self, device, name, ns="~joints"):
         Joint.__init__(self, device, name)
         n = ns+"/"+name+"/"
-        
+
         self.id = int(rospy.get_param(n+"id"))
         self.ticks = rospy.get_param(n+"ticks", 1024)
         self.neutral = rospy.get_param(n+"neutral", self.ticks/2)
@@ -58,7 +58,7 @@ class DynamixelServo(Joint):
         # TODO: load these from URDF
         self.max_angle = radians(rospy.get_param(n+"max_angle",self.range/2.0))
         self.min_angle = radians(rospy.get_param(n+"min_angle",-self.range/2.0))
-        self.max_speed = radians(rospy.get_param(n+"max_speed",684.0)) 
+        self.max_speed = radians(rospy.get_param(n+"max_speed",684.0))
                                                 # max speed = 114 rpm - 684 deg/s
         self.invert = rospy.get_param(n+"invert",False)
         self.readable = rospy.get_param(n+"readable",True)
@@ -78,7 +78,7 @@ class DynamixelServo(Joint):
 
         self.reads = 0.0                        # number of reads
         self.errors = 0                         # number of failed reads
-        self.total_reads = 0.0                  
+        self.total_reads = 0.0
         self.total_errors = [0.0]
 
         self.voltage = 0.0
@@ -257,24 +257,24 @@ class DynamixelServo(Joint):
             ticks_per_sec = max(1, int(self.speedToTicks(req.speed)))
             self.device.setSpeed(self.id, ticks_per_sec)
         return SetSpeedResponse()
-        
+
 class PrismaticDynamixelServo(DynamixelServo):
 
     def __init__(self, device, name, ns="~joints"):
         DynamixelServo.__init__(self, device, name)
         self.convertor = ParallelConvert(name)
         rospy.loginfo(name + " prismatic joint")
-                        
+
     def jstPosition(self, pos):
         return self.convertor.angleToWidth(self.ticksToAngle(pos)) # report Joint Status in meters
-        
+
 
 class HobbyServo(Joint):
 
     def __init__(self, device, name, ns="~joints"):
         Joint.__init__(self, device, name)
         n = ns+"/"+name+"/"
-        
+
         self.id = int(rospy.get_param(n+"id"))
         self.ticks = rospy.get_param(n+"ticks", 2000)
         self.neutral = rospy.get_param(n+"neutral", 1500)
@@ -284,17 +284,19 @@ class HobbyServo(Joint):
         # TODO: load these from URDF
         self.max_angle = radians(rospy.get_param(n+"max_angle",self.range/2.0))
         self.min_angle = radians(rospy.get_param(n+"min_angle",-self.range/2.0))
-        self.max_speed = radians(rospy.get_param(n+"max_speed",90.0)) 
+        self.max_speed = radians(rospy.get_param(n+"max_speed",90.0))
 
         self.invert = rospy.get_param(n+"invert",False)
+        self.tolerance = rospy.get_param(n + "tolerance", 0.05)   # Default 0.05 radians
 
         self.dirty = False                      # newly updated position?
         self.position = 0.0                     # current position, as returned by servo (radians)
+        self.jst_position= 0.0                  # position to report as Joint Status
         self.desired = 0.0                      # desired position (radians)
         self.last_cmd = 0.0                     # last position sent (radians)
         self.velocity = 0.0                     # moving speed
         self.last = rospy.Time.now()
-        
+
         # ROS interfaces
         rospy.Subscriber(name+'/command', Float64, self.commandCb)
 
@@ -312,22 +314,40 @@ class HobbyServo(Joint):
             self.last_cmd = self.ticksToAngle(ticks)
             self.speed = cmd*frame
             # cap movement
-            if self.last_cmd == self.desired:
+            if abs(self.last_cmd - self.desired) < self.tolerance:
                 self.dirty = False
             if self.device.fake:
+                last_angle = self.position
                 self.position = self.last_cmd
+                self.jst_position = self.jstPosition(ticks)
+                t = rospy.Time.now()
+                self.velocity = (self.position - last_angle)/((t - self.last).to_nsec()/1000000000.0)
+                self.last = t
                 return None
             return int(ticks)
         else:
             return None
 
-    def setCurrentFeedback(self, raw_data):
-        """ Update angle in radians by reading from servo, or by 
+    def jstPosition(self, pos):
+        return self.ticksToAngle(pos)  # report Joint Status in radians
+
+    def setCurrentFeedback(self, reading):
+        """ Update angle in radians by reading from servo, or by
             using position passed in from a sync read (in ticks). """
-        return None
+        if reading >= 500 and reading < 2500:     # check validity
+            last_angle = self.position
+            self.position = self.ticksToAngle(reading)
+            self.jst_position = self.jstPosition(reading)
+            # update velocity estimate
+            t = rospy.Time.now()
+            self.velocity = (self.position - last_angle)/((t - self.last).to_nsec()/1000000000.0)
+            self.last = t
+        else:
+            rospy.logdebug("Invalid read of servo: id " + str(self.id) + ", value " + str(reading))
+            return
 
     def setControlOutput(self, position):
-        """ Set the position that controller is moving to. 
+        """ Set the position that controller is moving to.
             Returns output value in ticks. """
         ticks = self.angleToTicks(position)
         self.desired = position
@@ -348,10 +368,10 @@ class HobbyServo(Joint):
         ticks = self.neutral + (angle/self.rad_per_tick)
         if self.invert:
             ticks = self.neutral - (angle/self.rad_per_tick)
-        if ticks >= self.ticks:
-            return self.ticks-1.0
-        if ticks < 0:
-            return 0
+        if ticks > self.ticks / 2 + self.neutral:
+            return self.ticks/ 2 + self.neutral
+        if ticks < self.neutral - self.ticks / 2:
+            return self.neutral - self.ticks / 2
         return ticks
 
     def ticksToAngle(self, ticks):
@@ -359,7 +379,7 @@ class HobbyServo(Joint):
         angle = (ticks - self.neutral) * self.rad_per_tick
         if self.invert:
             angle = -1.0 * angle
-        return angle        
+        return angle
 
     def commandCb(self, req):
         """ Float64 style command input. """
@@ -370,6 +390,15 @@ class HobbyServo(Joint):
             self.dirty = True
             self.desired = req.data
 
+class PrismaticHobbyServo(HobbyServo):
+
+    def __init__(self, device, name, ns="~joints"):
+        HobbyServo.__init__(self, device, name)
+        self.convertor = ParallelConvert(name)
+        rospy.loginfo(name + " prismatic joint")
+
+    def jstPosition(self, pos):
+        return self.convertor.angleToWidth(self.ticksToAngle(pos)) # report Joint Status in meters
 
 from controllers import *
 
@@ -389,6 +418,8 @@ class ServoController(Controller):
                 self.dynamixels.append(joint)
             elif isinstance(joint, HobbyServo):
                 self.hobbyservos.append(joint)
+            elif isinstance(joint, PrismaticHobbyServo):
+                self.hobbyservos.append(joint)
 
         self.w_delta = rospy.Duration(1.0/rospy.get_param("~write_rate", 10.0))
         self.w_next = rospy.Time.now() + self.w_delta
@@ -407,7 +438,7 @@ class ServoController(Controller):
                         synclist.append(joint.id)
                 if len(synclist) > 0:
                     val = self.device.syncRead(synclist, P_PRESENT_POSITION_L, 2)
-                    if val: 
+                    if val:
                         for joint in self.dynamixels:
                             try:
                                 i = synclist.index(joint.id)*2
@@ -415,11 +446,15 @@ class ServoController(Controller):
                             except Exception as e:
                                 # not a readable servo
                                 rospy.logerr("Servo read error: " + str(e) )
-                                continue 
+                                continue
             else:
                 # direct connection, or other hardware with no sync_read capability
                 for joint in self.dynamixels:
                     joint.setCurrentFeedback(self.device.getPosition(joint.id))
+
+            for joint in self.hobbyservos:
+                joint.setCurrentFeedback(self.device.getServo(joint.id))
+
             self.r_next = rospy.Time.now() + self.r_delta
 
         if rospy.Time.now() > self.w_next:
@@ -428,17 +463,17 @@ class ServoController(Controller):
                 for joint in self.dynamixels:
                     v = joint.interpolate(1.0/self.w_delta.to_sec())
                     if v != None:   # if was dirty
-                        syncpkt.append([joint.id,int(v)%256,int(v)>>8])                         
-                if len(syncpkt) > 0:      
+                        syncpkt.append([joint.id,int(v)%256,int(v)>>8])
+                if len(syncpkt) > 0:
                     self.device.syncWrite(P_GOAL_POSITION_L,syncpkt)
             else:
                 for joint in self.dynamixels:
                     v = joint.interpolate(1.0/self.w_delta.to_sec())
-                    if v != None:   # if was dirty      
+                    if v != None:   # if was dirty
                         self.device.setPosition(joint.id, int(v))
-            for joint in self.hobbyservos: 
+            for joint in self.hobbyservos:
                 v = joint.interpolate(1.0/self.w_delta.to_sec())
-                if v != None:   # if it was dirty   
+                if v != None:   # if it was dirty
                     self.device.setServo(joint.id, v)
             self.w_next = rospy.Time.now() + self.w_delta
 
@@ -463,7 +498,7 @@ class ServoController(Controller):
                                     joint.temperature = val[i+1]
                             except:
                                 # not a readable servo
-                                continue 
+                                continue
             else:
                 # direct connection, or other hardware with no sync_read capability
                 for joint in self.dynamixels:
@@ -476,4 +511,3 @@ class ServoController(Controller):
                             continue
         self.iter += 1
         return None
-

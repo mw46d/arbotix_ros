@@ -65,7 +65,7 @@ class ParallelGripperActionController:
 
     def actionCb(self, goal):
         """ Take an input command of width to open gripper. """
-        rospy.loginfo('Gripper controller action goal recieved:%f' % goal.command.position)
+        rospy.loginfo('ParallelGripperActionController::actionCb Gripper controller action goal recieved:%f' % goal.command.position)
         command = goal.command.position
         # check limits
         if command > self.max_opening:

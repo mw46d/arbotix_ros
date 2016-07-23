@@ -186,7 +186,7 @@ class GripperActionController:
 
     def actionCb(self, goal):
         """ Take an input command of width to open gripper. """
-        rospy.loginfo('Gripper controller action goal recieved:%f' % goal.command.position)
+        rospy.loginfo('gripper_controller::actionCb Gripper controller action goal recieved:%f' % goal.command.position)
         # send command to gripper
         self.model.setCommand(goal.command)
         # publish feedback
